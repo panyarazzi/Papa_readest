@@ -1,0 +1,82 @@
+name: Papa_readest Dev APK (FOSS ARM64)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: papa-readest-dev-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-dev-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PAPA_READEST_DEV_BUILD: "1"
+      NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          packages: platform-tools
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;28.2.13676358"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Prepare vendored assets
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - name: Install Rust stable and Android target
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
+        with:
+          workspaces: apps/readest-app/src-tauri
+
+      - name: Configure Tauri frontend environment
+        run: |
+          printf 'NEXT_PUBLIC_APP_PLATFORM=tauri\n' > .env.local
+          cp .env.local apps/readest-app/.env.local
+
+      - name: Build FOSS ARM64 debug APK with isolated .dev identity
+        working-directory: apps/readest-app
+        run: |
+          pnpm tauri android build --debug --target aarch64
+          APK="$(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*-debug.apk' | sort | head -n 1)"
+          test -n "$APK"
+          mkdir -p ../../artifacts
+          cp "$APK" "../../artifacts/Papa_readest-dev#${GITHUB_RUN_NUMBER}.apk"
+          printf 'Build label: Papa_readest-dev#%s\nVersion: %s\nCommit: %s\nRun ID: %s\nPackage: com.bilingify.readest.dev\nVariant: FOSS debug, ARM64\n' \
+            "$GITHUB_RUN_NUMBER" "$(node -p "require('./package.json').version")" "$GITHUB_SHA" "$GITHUB_RUN_ID" \
+            > ../../artifacts/export-info.txt
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Papa_readest-dev#${{ github.run_number }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14
