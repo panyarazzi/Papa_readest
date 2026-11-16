@@ -81,6 +81,12 @@ android {
     }
     buildTypes {
         getByName("debug") {
+            // A deliberately separate package identity for user-tested dev APKs.
+            // Set only by the dedicated workflow; ordinary debug/E2E builds keep
+            // the upstream package id and remain install-compatible.
+            if (System.getenv("PAPA_READEST_DEV_BUILD") == "1") {
+                applicationIdSuffix = ".dev"
+            }
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true
